@@ -3,8 +3,8 @@ from sqlalchemy import UniqueConstraint, create_engine, Column, Integer, Text, D
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import relationship
-
-DATABASE_URL = "postgresql://postgres:aditya@localhost:5432/website_crawl"
+import os
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
