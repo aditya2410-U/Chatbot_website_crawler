@@ -6,9 +6,10 @@
 
 from database import engine, Base
 from models.chunk import SiteChunk
+from database import CrawlSession, CrawledData
 
 def init_db():
-    Base.metadata.drop_all(bind=engine)   # Drop all tables
+    # Base.metadata.drop_all(bind=engine)  
     Base.metadata.create_all(bind=engine)
 
 if __name__ == "__main__":

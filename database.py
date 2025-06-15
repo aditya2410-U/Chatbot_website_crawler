@@ -3,7 +3,9 @@ from sqlalchemy import UniqueConstraint, create_engine, Column, Integer, Text, D
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import relationship
+from dotenv import load_dotenv
 import os
+load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
