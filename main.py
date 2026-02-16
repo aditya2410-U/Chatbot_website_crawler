@@ -10,7 +10,17 @@ import numpy as np
 
 from service.gemini_call import call_gemini_api
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 class CrawlRequest(BaseModel):
     url: HttpUrl
