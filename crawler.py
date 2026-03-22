@@ -1,4 +1,6 @@
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from collections import deque
@@ -6,7 +8,7 @@ import time
 
 class SimpleCrawler:
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; SimpleCrawler/1.0; +https://yourdomain.com/bot)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     def __init__(self, base_url, max_depth=2):
@@ -25,7 +27,7 @@ class SimpleCrawler:
             print(f"[Depth {depth}] Crawling URL: {url}")
             
             try:
-                resp = requests.get(url, headers=self.headers, timeout=5)
+                resp = requests.get(url, headers=self.headers, timeout=5, verify=False)
                 if resp.status_code != 200:
                     print(f"  -> Skipped URL due to status code: {resp.status_code}")
                     continue
