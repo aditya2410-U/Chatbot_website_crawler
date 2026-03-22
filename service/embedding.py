@@ -1,53 +1,82 @@
 import requests
 import time
-from chunk_text import chunk_text  # Your custom chunking logic
-from database import CrawledData, SessionLocal  # SQLAlchemy setup
-from models.chunk import SiteChunk  # Your ORM model for storing embeddings
-
+from pymongo import MongoClient
+from chunk_text import chunk_text
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
+
 HF_TOKEN = os.getenv("HF_TOKEN")
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+DB_NAME = os.getenv("MONGODB_DB", "thinkai_crawler")
 
-# 🌐 Updated API endpoint for embeddings
 API_URL = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-mpnet-base-v2/pipeline/feature-extraction"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-# 🔧 Function to get embedding from Hugging Face
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2.0  # seconds
+
+# Synchronous pymongo client (used only in this module for blocking HF embed work)
+_sync_client: MongoClient = None
+
+def _get_sync_db():
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = MongoClient(MONGODB_URI)
+    return _sync_client[DB_NAME]
+
+
 def get_hf_embedding(text: str) -> list:
-    try:
-        payload = {"inputs": text}
-        response = requests.post(API_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()[0]  # Return the embedding vector
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching embedding: {e}")
-        return []
+    """Fetch embedding vector from HuggingFace with retry logic."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                API_URL,
+                headers=HF_HEADERS,
+                json={"inputs": text},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()[0]
+        except requests.exceptions.RequestException as e:
+            print(f"[Embedding] Attempt {attempt}/{MAX_RETRIES} failed: {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF * attempt)
+    print("[Embedding] All retries exhausted — returning empty vector.")
+    return []
 
-# 🧠 Main function to embed and store chunks in DB
-def embed_and_store_chunks(session_id: int):
-    db = SessionLocal()
-    try:
-        crawled_pages = db.query(CrawledData).filter(CrawledData.session_id == session_id).all()
-        for page in crawled_pages:
-            chunks = chunk_text(page.content)
-            print(f"Chunks for {page.url}: {chunks}")
-            for chunk in chunks:
-                embedding_vector = get_hf_embedding(chunk)
-                if embedding_vector:  # Only store if embedding succeeded
-                    chunk_record = SiteChunk(
-                        url=page.url,
-                        chunk_text=chunk,
-                        embedding=embedding_vector,
-                        session_id=session_id
-                    )
-                    db.add(chunk_record)
-                    time.sleep(0.5)  # Avoid hitting rate limits
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        print(f"Error embedding and storing chunks: {e}")
-    finally:
-        db.close()
-        print("Database session closed.")
+
+def embed_and_store_chunks(session_id: str):
+    """
+    Fetch all crawled pages for a session (sync pymongo), chunk text,
+    generate HuggingFace embeddings, and store results back in MongoDB.
+    """
+    db = _get_sync_db()
+    crawled_col = db["crawled_data"]
+    chunks_col = db["site_chunks"]
+
+    pages = list(crawled_col.find({"session_id": session_id}))
+    print(f"[Embedding] Processing {len(pages)} pages for session {session_id}")
+
+    docs_to_insert = []
+    for page in pages:
+        chunks = chunk_text(page["content"])
+        for chunk in chunks:
+            embedding_vector = get_hf_embedding(chunk)
+            if embedding_vector:
+                docs_to_insert.append(
+                    {
+                        "session_id": session_id,
+                        "url": page["url"],
+                        "chunk_text": chunk,
+                        "embedding": embedding_vector,
+                    }
+                )
+                time.sleep(0.4)  # HuggingFace rate limiting
+
+    if docs_to_insert:
+        chunks_col.insert_many(docs_to_insert)
+        print(f"[Embedding] Stored {len(docs_to_insert)} chunks for session {session_id}")
+    else:
+        print("[Embedding] No chunks embedded — check HF_TOKEN and crawled content.")
